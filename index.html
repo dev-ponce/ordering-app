@@ -6,7 +6,6 @@
     <title>Brew Rio's Cafe</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap" rel="stylesheet">
-    
     <style>
         :root { --espresso: #3C2A21; --cream: #F5EBE0; --sage: #4F6F52; --white: #FFFFFF; }
         body { font-family: 'Poppins', sans-serif; background-color: var(--cream); margin: 0; display: flex; justify-content: center; }
@@ -31,8 +30,10 @@
     </style>
 </head>
 <body>
-
-    <div id="app-container"></div>
+    <div id="app-container">
+        <h2 style="margin-top:50px;">Loading Brew Rio's Cafe...</h2>
+        <p style="text-align:center;">If this stays here, please check your internet connection.</p>
+    </div>
 
     <div id="modal-overlay" class="hidden">
         <div id="receipt-modal">
@@ -41,6 +42,7 @@
     </div>
 
     <script>
+        // CONFIGURATION
         const LOCATIONS_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRCyVhPmhQSm4zkkdm7CGWhyS7caBP-5-STodwG0EU7v8Nlgq3Psn9TqHhmggAHvSVgAhq1xYEVrMiH/pub?gid=0&single=true&output=csv";
         const MENU_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vT0vswqHrOY59SZr27hDJ6ld1J7w5fw1m4GXi52u5aL9wsRAxjdJ79g7q0hnykdiMvFnCZLl6AFDW5s/pub?gid=0&single=true&output=csv";
         const AIRTABLE_TOKEN = 'patPoqAcze4G7hzOD.3f641359761da7f7a357b4f389d6e3c64c6c37843e093d67e1c1d08049b1dde5'; 
@@ -57,14 +59,40 @@
             lastTicket: ''
         };
 
-        document.addEventListener('DOMContentLoaded', fetchData);
+        // Initialize App
+        window.onload = function() {
+            fetchData();
+        };
 
         async function fetchData() {
-            Papa.parse(LOCATIONS_URL, { download: true, header: true, complete: (res) => { state.locations = res.data; } });
-            Papa.parse(MENU_URL, { download: true, header: true, complete: (res) => { 
-                state.menu = res.data.filter(item => item.Availability === 'TRUE'); 
-                render(); 
-            }});
+            try {
+                Papa.parse(LOCATIONS_URL, { 
+                    download: true, 
+                    header: true, 
+                    skipEmptyLines: true,
+                    complete: (res) => { 
+                        state.locations = res.data;
+                        checkReady();
+                    } 
+                });
+                Papa.parse(MENU_URL, { 
+                    download: true, 
+                    header: true, 
+                    skipEmptyLines: true,
+                    complete: (res) => { 
+                        state.menu = res.data.filter(item => item.Availability === 'TRUE'); 
+                        checkReady();
+                    } 
+                });
+            } catch (err) {
+                document.getElementById('app-container').innerHTML = "<h2>Error loading data.</h2>";
+            }
+        }
+
+        function checkReady() {
+            if (state.locations.length > 0 && state.menu.length > 0) {
+                render();
+            }
         }
 
         function setView(v) { state.view = v; render(); window.scrollTo(0,0); }
@@ -226,7 +254,7 @@
                 });
                 if(!res.ok) throw new Error("Airtable Error");
                 closeModal(); setView('thankyou');
-            } catch (e) { alert("Error saving order. Please check Airtable field names."); btn.innerText = "Confirm"; btn.disabled = false; }
+            } catch (e) { alert("Error saving order. Check Airtable field names."); btn.innerText = "Confirm"; btn.disabled = false; }
         }
 
         function renderThankYou(container) {
