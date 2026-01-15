@@ -8,11 +8,32 @@
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap" rel="stylesheet">
     
     <style>
-        /* PASTE ALL YOUR CSS CODE HERE */
+        :root { --espresso: #3C2A21; --cream: #F5EBE0; --sage: #4F6F52; --white: #FFFFFF; }
+        body { font-family: 'Poppins', sans-serif; background-color: var(--cream); margin: 0; display: flex; justify-content: center; }
+        #app-container { width: 100%; max-width: 500px; min-height: 100vh; background: var(--white); padding: 20px; box-sizing: border-box; position: relative; box-shadow: 0 0 20px rgba(0,0,0,0.1); }
+        h1, h2 { color: var(--espresso); text-align: center; }
+        .btn-primary { background: var(--espresso); color: white; padding: 15px; border: none; border-radius: 8px; width: 100%; cursor: pointer; font-size: 16px; font-weight: 600; margin-top: 10px; }
+        .btn-secondary { background: var(--sage); color: white; padding: 15px; border: none; border-radius: 8px; width: 100%; cursor: pointer; font-size: 16px; font-weight: 600; margin-top: 10px; }
+        input, select { width: 100%; padding: 12px; margin: 8px 0; border: 1px solid #ccc; border-radius: 8px; box-sizing: border-box; }
+        .product-card { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #eee; padding: 15px 0; gap: 15px; }
+        .product-img { width: 80px; height: 80px; object-fit: cover; border-radius: 12px; }
+        .tabs { display: flex; overflow-x: auto; gap: 10px; padding: 10px 0; }
+        .tabs button { white-space: nowrap; padding: 8px 16px; border-radius: 20px; border: 1px solid var(--espresso); background: transparent; cursor: pointer; }
+        .tabs button.active-tab { background: var(--espresso); color: white; }
+        #modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); display: flex; justify-content: center; align-items: center; z-index: 1000; }
+        .thermal-receipt { background: white; font-family: 'Courier New', Courier, monospace; padding: 20px; width: 320px; color: #000; box-shadow: 0 5px 15px rgba(0,0,0,0.3); }
+        .receipt-header { text-align: center; margin-bottom: 15px; }
+        .receipt-line { display: flex; justify-content: space-between; margin: 4px 0; font-size: 0.9em; }
+        .modal-buttons { display: flex; gap: 10px; margin-top: 20px; }
+        .btn-edit { background-color: #eee; color: #333; border: none; padding: 12px; border-radius: 8px; flex: 1; cursor: pointer; font-weight: bold; }
+        .btn-proceed { background-color: var(--sage); color: white; border: none; padding: 12px; border-radius: 8px; flex: 1; cursor: pointer; font-weight: bold; }
+        .hidden { display: none !important; }
     </style>
 </head>
 <body>
+
     <div id="app-container"></div>
+
     <div id="modal-overlay" class="hidden">
         <div id="receipt-modal">
             <div class="thermal-receipt" id="receipt-content"></div>
@@ -20,7 +41,200 @@
     </div>
 
     <script>
-        /* PASTE ALL YOUR JAVASCRIPT CODE HERE */
+        const LOCATIONS_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRCyVhPmhQSm4zkkdm7CGWhyS7caBP-5-STodwG0EU7v8Nlgq3Psn9TqHhmggAHvSVgAhq1xYEVrMiH/pub?gid=0&single=true&output=csv";
+        const MENU_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vT0vswqHrOY59SZr27hDJ6ld1J7w5fw1m4GXi52u5aL9wsRAxjdJ79g7q0hnykdiMvFnCZLl6AFDW5s/pub?gid=0&single=true&output=csv";
+        const AIRTABLE_TOKEN = 'patPoqAcze4G7hzOD.3f641359761da7f7a357b4f389d6e3c64c6c37843e093d67e1c1d08049b1dde5'; 
+        const BASE_ID = 'appQelN5VSZqcVbqx'; 
+        const ORDERS_TABLE = 'Orders'; 
+
+        let state = {
+            view: 'landing',
+            user: { name: '', phone: '+639', mode: '', province: '', town: '', barangay: '', landmark: '', date: '' },
+            menu: [],
+            locations: [],
+            cart: {}, 
+            activeCategory: 'All Items',
+            lastTicket: ''
+        };
+
+        document.addEventListener('DOMContentLoaded', fetchData);
+
+        async function fetchData() {
+            Papa.parse(LOCATIONS_URL, { download: true, header: true, complete: (res) => { state.locations = res.data; } });
+            Papa.parse(MENU_URL, { download: true, header: true, complete: (res) => { 
+                state.menu = res.data.filter(item => item.Availability === 'TRUE'); 
+                render(); 
+            }});
+        }
+
+        function setView(v) { state.view = v; render(); window.scrollTo(0,0); }
+
+        function render() {
+            const container = document.getElementById('app-container');
+            container.innerHTML = ''; 
+            if (state.view === 'landing') {
+                container.innerHTML = `<div style="text-align:center; padding-top:100px;"><h1>Brew Rio's Cafe</h1><button class="btn-primary" onclick="setView('orderMode')">Start Ordering</button></div>`;
+            } else if (state.view === 'orderMode') { renderOrderMode(container); }
+            else if (state.view === 'menu') { renderMenu(container); }
+            else if (state.view === 'cart') { renderCart(container); }
+            else if (state.view === 'thankyou') { renderThankYou(container); }
+        }
+
+        function renderOrderMode(container) {
+            container.innerHTML = `<button onclick="setView('landing')">← Back</button><h2>Order Details</h2>
+                <select onchange="updateMode(this.value)"><option value="">-- Choose Mode --</option>
+                    <option value="Delivery" ${state.user.mode === 'Delivery' ? 'selected' : ''}>For Delivery</option>
+                    <option value="Pickup" ${state.user.mode === 'Pickup' ? 'selected' : ''}>For Pickup</option>
+                    <option value="Reservation" ${state.user.mode === 'Reservation' ? 'selected' : ''}>Seat Reservation</option>
+                </select><div id="dynamicFields"></div>
+                <div id="validation-msg" style="color:red; text-align:center; margin-top:10px;"></div>
+                <button class="btn-primary" onclick="validateAndProceed()">Next</button>`;
+            if(state.user.mode) updateMode(state.user.mode);
+        }
+
+        function updateMode(mode) {
+            state.user.mode = mode;
+            const fields = document.getElementById('dynamicFields');
+            const now = new Date();
+            const minD = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+
+            let html = `<input type="text" placeholder="Full Name" value="${state.user.name}" oninput="state.user.name=this.value">
+                <div style="display:flex; align-items:center; margin-bottom:8px;">
+                    <span style="background:#eee; padding:12px; border:1px solid #ccc; border-radius:8px 0 0 8px;">+639</span>
+                    <input type="text" maxlength="9" style="border-radius:0 8px 8px 0; margin:0;" placeholder="Phone (9 digits)" value="${state.user.phone.replace('+639','')}" oninput="state.user.phone='+639'+this.value.replace(/\\D/g,'')">
+                </div>`;
+            
+            if (mode === 'Delivery') {
+                const provs = [...new Set(state.locations.map(l => l.Province))].filter(p => p);
+                const towns = [...new Set(state.locations.filter(l => l.Province === state.user.province).map(l => l.Town))];
+                const brgys = [...new Set(state.locations.filter(l => l.Town === state.user.town).map(l => l.Barangay))];
+
+                html += `<select onchange="state.user.province=this.value; state.user.town=''; state.user.barangay=''; updateMode('Delivery')"><option value="">Select Province</option>${provs.map(p => `<option value="${p}" ${state.user.province===p?'selected':''}>${p}</option>`).join('')}</select>
+                    <select onchange="state.user.town=this.value; state.user.barangay=''; updateMode('Delivery')" ${!state.user.province?'disabled':''}><option value="">Select Town</option>${towns.map(t => `<option value="${t}" ${state.user.town===t?'selected':''}>${t}</option>`).join('')}</select>
+                    <select onchange="state.user.barangay=this.value; updateMode('Delivery')" ${!state.user.town?'disabled':''}><option value="">Select Barangay</option>${brgys.map(b => `<option value="${b}" ${state.user.barangay===b?'selected':''}>${b}</option>`).join('')}</select>
+                    <input type="text" placeholder="Landmark" oninput="state.user.landmark=this.value" value="${state.user.landmark}">`;
+            }
+            html += `<label>Schedule Date:</label><input type="datetime-local" min="${minD}" onchange="state.user.date=this.value" value="${state.user.date}">`;
+            fields.innerHTML = html;
+        }
+
+        function validateAndProceed() {
+            const u = state.user;
+            const now = new Date();
+            const selectedDate = new Date(u.date);
+            const msg = document.getElementById('validation-msg');
+
+            if (!u.mode || !u.name || u.phone.length < 13 || !u.date) {
+                msg.innerText = "⚠️ Please fill in all fields."; return;
+            }
+            if (u.mode === 'Delivery' && (!u.province || !u.town || !u.barangay || !u.landmark)) {
+                msg.innerText = "⚠️ All address fields and landmark are required."; return;
+            }
+            if (selectedDate < now) {
+                msg.innerText = "⚠️ Selected date cannot be in the past."; return;
+            }
+            msg.innerText = "";
+            setView('menu');
+        }
+
+        function renderMenu(container) {
+            const cats = ['All Items', ...new Set(state.menu.map(i => i.Category))];
+            container.innerHTML = `<div style="position:sticky; top:0; background:white; padding-bottom:10px; z-index:100;"><button onclick="setView('orderMode')">← Back</button><div class="tabs">${cats.map(c => `<button class="${state.activeCategory===c?'active-tab':''}" onclick="state.activeCategory='${c}'; renderMenu(document.getElementById('app-container'))">${c}</button>`).join('')}</div></div><div id="menu-list" style="padding-bottom:100px;"></div><div style="position:fixed; bottom:0; width:100%; max-width:500px; background:var(--espresso); color:white; padding:15px; display:flex; justify-content:space-between; left:50%; transform:translateX(-50%); z-index:100;"><button onclick="setView('cart')">View Cart</button><b>Total: ₱${getGrandTotal()}</b></div>`;
+            renderMenuContent();
+        }
+
+        function renderMenuContent() {
+            const filtered = state.menu.filter(i => state.activeCategory === 'All Items' || i.Category === state.activeCategory);
+            document.getElementById('menu-list').innerHTML = filtered.map(item => {
+                const key = `${item["Product Name"]}-${item.Size}`;
+                const qty = state.cart[key]?.qty || 0;
+                return `<div class="product-card"><div><strong>${item["Product Name"]}</strong><br><small>${item.Size} - ₱${item.Price}</small><br><button onclick="updateCart('${key}',-1,${item.Price},'${item.Category}')">-</button> ${qty} <button onclick="updateCart('${key}',1,${item.Price},'${item.Category}')">+</button></div><img src="${item.Image}" class="product-img" onerror="this.src='https://via.placeholder.com/80'"></div>`;
+            }).join('');
+        }
+
+        function updateCart(k, d, p, cat) {
+            if (!state.cart[k]) state.cart[k] = { qty: 0, price: p, name: k.split('-')[0], size: k.split('-')[1], category: cat };
+            state.cart[k].qty += d; if (state.cart[k].qty < 0) state.cart[k].qty = 0;
+            state.view === 'menu' ? renderMenuContent() : render();
+        }
+
+        function getGrandTotal() { return Object.values(state.cart).reduce((s, i) => s + (i.qty * i.price), 0); }
+        function getTotalQty() { return Object.values(state.cart).reduce((s, i) => s + i.qty, 0); }
+
+        function calculateDeliveryFee() {
+            if (state.user.mode !== 'Delivery') return { total: 0, surcharge: 0 };
+            const locationData = state.locations.find(l => l.Town === state.user.town && l.Barangay === state.user.barangay);
+            const baseDF = locationData ? Number(locationData.DF) || 0 : 0;
+            const totalQty = getTotalQty();
+            let surcharge = 0;
+            if (totalQty > 10) { surcharge = Math.ceil((totalQty - 10) / 10) * 10; }
+            return { total: baseDF + surcharge, surcharge: surcharge };
+        }
+
+        function renderCart(container) {
+            const items = Object.entries(state.cart);
+            container.innerHTML = `<button onclick="setView('menu')">← Back</button><h2>Your Cart</h2>` + (items.length ? items.map(([k, i]) => `
+                <div class="product-card" style="${i.qty === 0 ? 'opacity: 0.5;' : ''}">
+                    <div><strong>${i.name} (${i.size})</strong><br>${i.qty} x ₱${i.price} = <b>₱${i.qty * i.price}</b></div>
+                    <div style="display:flex;gap:5px;"><button onclick="updateCart('${k}',-1,${i.price},'${i.category}')">-</button><button onclick="updateCart('${k}',1,${i.price},'${i.category}')">+</button></div>
+                </div>`).join('') + `<button class="btn-primary" onclick="showReceipt()" ${getGrandTotal() === 0 ? 'disabled' : ''}>Checkout ₱${getGrandTotal()}</button>` : `<p style="text-align:center;">Empty</p>`);
+        }
+
+        function showReceipt() {
+            const ticket = "BR-" + Math.floor(1000 + Math.random() * 9000); 
+            state.lastTicket = ticket;
+            const subtotal = getGrandTotal();
+            const dfData = calculateDeliveryFee();
+            const grandTotal = subtotal + dfData.total;
+            const itemsHtml = Object.values(state.cart).filter(i => i.qty > 0).map(i => `<div class="receipt-line"><span>${i.qty}x ${i.name} (${i.size})</span><span>₱${i.qty*i.price}</span></div>`).join('');
+            
+            document.getElementById('receipt-content').innerHTML = `
+                <div class="receipt-header"><strong>BREW RIO'S CAFE</strong><br>Ticket: ${ticket}</div>
+                <hr>${itemsHtml}<hr>
+                <div class="receipt-line"><span>Items Subtotal</span><span>₱${subtotal}</span></div>
+                ${state.user.mode === 'Delivery' ? `<div class="receipt-line"><span>Delivery Fee ${dfData.surcharge > 0 ? `<br><small>(incl. ₱${dfData.surcharge} bulk charge)</small>` : ''}</span><span>₱${dfData.total}</span></div>` : ''}
+                <div class="receipt-line" style="font-weight: bold; font-size: 1.1em; margin-top:10px; border-top:1px solid #000; padding-top:5px;"><span>GRAND TOTAL</span><span>₱${grandTotal}</span></div>
+                <div class="modal-buttons">
+                    <button class="btn-edit" onclick="closeModal()">Edit</button>
+                    <button id="finalBtn" class="btn-proceed" onclick="confirmOrder('${ticket}', ${dfData.total}, ${grandTotal})">Confirm</button>
+                </div>`;
+            document.getElementById('modal-overlay').classList.remove('hidden');
+        }
+
+        async function confirmOrder(t, df, gt) {
+            const btn = document.getElementById('finalBtn'); btn.innerText = "Saving..."; btn.disabled = true;
+            try {
+                const u = state.user;
+                const formattedAddress = u.mode === 'Delivery' ? `${u.barangay}, ${u.town}, ${u.province} Landmark: ${u.landmark}` : u.mode;
+                const groupedItems = {};
+                Object.values(state.cart).filter(i => i.qty > 0).forEach(i => {
+                    const cat = (i.category || 'OTHER').toUpperCase();
+                    if (!groupedItems[cat]) groupedItems[cat] = [];
+                    groupedItems[cat].push(`(${i.qty}) ${i.size} ${i.name}`);
+                });
+                let itemsStr = '';
+                for (const [cat, lines] of Object.entries(groupedItems)) { itemsStr += `**${cat}**\n${lines.join('\n')}\n\n`; }
+
+                const res = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${ORDERS_TABLE}`, { 
+                    method: 'POST', 
+                    headers: { 'Authorization': `Bearer ${AIRTABLE_TOKEN}`, 'Content-Type': 'application/json' }, 
+                    body: JSON.stringify({ fields: { 
+                        "Ticket": t, "Name": u.name, "Phone": u.phone, "Mode": u.mode, 
+                        "Total Items Price": getGrandTotal(), "Delivery Fee": df, "Grand Total": gt,
+                        "Schedule": u.date, "Address": formattedAddress, "Items Ordered": itemsStr.trim() 
+                    } }) 
+                });
+                if(!res.ok) throw new Error("Airtable Error");
+                closeModal(); setView('thankyou');
+            } catch (e) { alert("Error saving order. Please check Airtable field names."); btn.innerText = "Confirm"; btn.disabled = false; }
+        }
+
+        function renderThankYou(container) {
+            container.innerHTML = `<div style="text-align:center; padding-top:80px;"><h1>✅ Order Sent!</h1><p>Ticket Number: <b>${state.lastTicket}</b></p><p>Questions? Call us:</p><a href="tel:09954232860" style="font-size: 1.2rem; font-weight: 600; color: var(--espresso); text-decoration: none;">📞 09954232860</a><br><br><button class="btn-secondary" onclick="resetAndOrderAgain()">Make another order</button></div>`;
+        }
+
+        function resetAndOrderAgain() { state.cart = {}; setView('landing'); }
+        function closeModal() { document.getElementById('modal-overlay').classList.add('hidden'); }
     </script>
 </body>
 </html>
